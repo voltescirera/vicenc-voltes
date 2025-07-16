@@ -24,7 +24,10 @@ A professional-grade macro recorder application with a modern Apple-like interfa
 - **Responsive Layout**: Resizable window with proper scaling
 
 ### ⚡ Advanced Controls
-- **ESC to Stop**: Press ESC at any time to stop recording or playback
+- **Global ESC Detection**: Press ESC anywhere to stop recording or playback (works even when app isn't focused)
+- **Smart Coordinate System**: Multiple calibration modes for different screen setups
+- **Test Click Feature**: Verify coordinate accuracy before recording
+- **Real-time Debugging**: See coordinate transformations in the activity log
 - **Thread-Safe**: All operations run safely in background threads
 - **Error Handling**: Comprehensive error handling with user-friendly messages
 
@@ -36,9 +39,18 @@ A professional-grade macro recorder application with a modern Apple-like interfa
 
 ### Quick Setup
 
+#### Option 1: Automated (Recommended)
+```bash
+# Download all files, then run the automated launcher
+./run_macro_recorder.sh
+```
+The launcher script automatically installs dependencies and starts the application.
+
+#### Option 2: Manual Installation
+
 1. **Clone or download the files**:
    ```bash
-   # Download the macro_recorder.py file to your desired directory
+   # Download all .py files to your desired directory
    ```
 
 2. **Install system dependencies**:
@@ -151,28 +163,45 @@ Saved recordings use JSON format with the following structure:
 
 ## 🛠 Troubleshooting
 
+### ✅ FIXED ISSUES (Latest Version)
+
+1. **ESC Key Now Works Globally** ✅:
+   - Global key listener detects ESC from anywhere
+   - No need for application to have focus
+   - Works during both recording and playback
+
+2. **Coordinate Mapping Fixed** ✅:
+   - New calibration system with multiple options
+   - "Test Click" button to verify accuracy
+   - Raw coordinates mode for same-system use
+   - Manual calibration for screen offsets
+
 ### Common Issues
 
 1. **Permission Errors**:
    ```bash
-   # Run with proper permissions for input access
+   # Use the launcher script (handles permissions automatically)
+   ./run_macro_recorder.sh
+   # OR run manually
    sudo python3 macro_recorder.py
    ```
 
 2. **Import Errors**:
    ```bash
-   # Reinstall dependencies
+   # Use the automated launcher
+   ./run_macro_recorder.sh
+   # OR install manually
    pip install --break-system-packages pynput
    sudo apt install python3-tk
    ```
 
-3. **Coordinate Issues**:
-   - Use the calibration feature before recording
-   - Ensure you're recording on the same screen setup where you'll play back
-
-4. **ESC Key Not Working**:
-   - Make sure the application window has focus
-   - Try clicking on the application window first
+3. **Clicks in Wrong Position**:
+   - Click "🎯 Test Click" to verify current position
+   - Use "📏 Calibrate" and try different modes:
+     - Auto Calibrate (recommended)
+     - Manual Calibrate (for screen offsets)
+     - Raw Coordinates (for same system)
+   - Check coordinate transformation in the activity log
 
 ### Performance Tips
 - For long recordings, ensure adequate disk space

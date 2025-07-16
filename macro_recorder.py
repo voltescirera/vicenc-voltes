@@ -33,20 +33,23 @@ class MacroRecorder:
         # Listeners and controllers
         self.mouse_listener = None
         self.keyboard_listener = None
+        self.global_key_listener = None  # For ESC key detection
         self.mouse_controller = mouse.Controller()
         self.keyboard_controller = keyboard.Controller()
         
         # Queue for thread-safe GUI updates
         self.log_queue = queue.Queue()
         
-        # Screen calibration
+        # Screen calibration - improved approach
         self.screen_width = self.root.winfo_screenwidth()
         self.screen_height = self.root.winfo_screenheight()
-        self.calibration_factor_x = 1.0
-        self.calibration_factor_y = 1.0
+        self.offset_x = 0  # Screen offset
+        self.offset_y = 0  # Screen offset
+        self.use_raw_coordinates = True  # Use raw coordinates by default
         
         self.setup_gui()
         self.setup_styles()
+        self.setup_global_key_listener()  # Set up global ESC listener
         self.process_log_queue()
         
     def setup_window(self):
@@ -64,6 +67,41 @@ class MacroRecorder:
         
         # Make window resizable but maintain aspect
         self.root.resizable(True, True)
+        
+        # Handle window closing
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    def setup_global_key_listener(self):
+        """Set up global key listener for ESC key detection"""
+        def on_key_press(key):
+            try:
+                if key == Key.esc:
+                    if self.is_recording:
+                        self.log_action("ESC pressed - stopping recording")
+                        self.root.after(0, self.stop_recording)
+                    elif self.is_playing:
+                        self.log_action("ESC pressed - stopping playback")
+                        self.root.after(0, self.stop_playback)
+            except Exception as e:
+                self.log_action(f"Key listener error: {e}")
+        
+        # Start global key listener in a separate thread
+        self.global_key_listener = KeyboardListener(on_press=on_key_press)
+        self.global_key_listener.daemon = True
+        self.global_key_listener.start()
+        
+    def on_closing(self):
+        """Handle application closing"""
+        try:
+            if self.global_key_listener:
+                self.global_key_listener.stop()
+            if self.mouse_listener:
+                self.mouse_listener.stop()
+            if self.keyboard_listener:
+                self.keyboard_listener.stop()
+        except:
+            pass
+        self.root.destroy()
         
     def setup_styles(self):
         """Configure modern Apple-like theme styles"""
@@ -194,8 +232,13 @@ class MacroRecorder:
                                   command=self.clear_recording, style='Secondary.TButton')
         self.clear_btn.pack(side=tk.LEFT, padx=(0, 15))
         
+        # Test click button - for debugging coordinates
+        self.test_btn = ttk.Button(primary_controls, text="🎯 Test Click", 
+                                 command=self.test_click, style='Secondary.TButton')
+        self.test_btn.pack(side=tk.LEFT, padx=(0, 15))
+        
         # Calibration button
-        self.calibrate_btn = ttk.Button(primary_controls, text="🎯 Calibrate", 
+        self.calibrate_btn = ttk.Button(primary_controls, text="📏 Calibrate", 
                                       command=self.calibrate_screen, style='Secondary.TButton')
         self.calibrate_btn.pack(side=tk.RIGHT)
         
@@ -242,9 +285,15 @@ class MacroRecorder:
         self.action_count_label = ttk.Label(status_top, text="Actions: 0", style='Status.TLabel')
         self.action_count_label.pack(side=tk.RIGHT)
         
-        # File status
-        self.file_status_label = ttk.Label(status_inner, text="No file loaded", style='Status.TLabel')
-        self.file_status_label.pack(anchor=tk.W, pady=(5, 0))
+        # File status and coordinate info
+        status_bottom = ttk.Frame(status_inner, style='Card.TFrame')
+        status_bottom.pack(fill=tk.X, pady=(5, 0))
+        
+        self.file_status_label = ttk.Label(status_bottom, text="No file loaded", style='Status.TLabel')
+        self.file_status_label.pack(side=tk.LEFT)
+        
+        self.coordinate_info_label = ttk.Label(status_bottom, text="Raw coordinates mode", style='Status.TLabel')
+        self.coordinate_info_label.pack(side=tk.RIGHT)
         
         # Event log section
         log_card = ttk.Frame(main_frame, style='Card.TFrame')
@@ -271,23 +320,15 @@ class MacroRecorder:
                                                 pady=10)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         
-        # Global key bindings for ESC
-        self.root.bind('<Escape>', self.handle_escape_key)
-        self.root.bind('<KeyPress-Escape>', self.handle_escape_key)
-        self.root.focus_set()
+    def test_click(self):
+        """Test function to click at current mouse position and show coordinates"""
+        current_pos = self.mouse_controller.position
+        self.log_action(f"Current mouse position: {current_pos}")
         
-        # Make the window focusable for global key events
-        self.root.attributes('-topmost', False)
-        
-    def handle_escape_key(self, event=None):
-        """Handle ESC key press - stop recording or playback"""
-        if self.is_recording:
-            self.stop_recording()
-            self.log_action("Recording stopped by ESC key")
-        elif self.is_playing:
-            self.stop_playback()
-            self.log_action("Playback stopped by ESC key")
-        return "break"
+        # Click at current position
+        time.sleep(1)  # Give user time to see the message
+        self.mouse_controller.click(Button.left)
+        self.log_action(f"Test click performed at {current_pos}")
         
     def log_action(self, message):
         """Thread-safe logging to the event log"""
@@ -330,8 +371,9 @@ class MacroRecorder:
                     'created': datetime.now().isoformat(),
                     'actions': self.recorded_actions,
                     'calibration': {
-                        'factor_x': self.calibration_factor_x,
-                        'factor_y': self.calibration_factor_y
+                        'offset_x': self.offset_x,
+                        'offset_y': self.offset_y,
+                        'use_raw_coordinates': self.use_raw_coordinates
                     },
                     'metadata': {
                         'action_count': len(self.recorded_actions),
@@ -376,12 +418,14 @@ class MacroRecorder:
                 # Load calibration if available
                 if 'calibration' in recording_data:
                     cal = recording_data['calibration']
-                    self.calibration_factor_x = cal.get('factor_x', 1.0)
-                    self.calibration_factor_y = cal.get('factor_y', 1.0)
+                    self.offset_x = cal.get('offset_x', 0)
+                    self.offset_y = cal.get('offset_y', 0)
+                    self.use_raw_coordinates = cal.get('use_raw_coordinates', True)
                 
                 self.current_file = filename
                 self.update_file_status()
                 self.update_action_count()
+                self.update_coordinate_info()
                 
                 # Display metadata if available
                 metadata = recording_data.get('metadata', {})
@@ -409,20 +453,28 @@ class MacroRecorder:
         else:
             self.file_status_label.configure(text="No file loaded")
             
+    def update_coordinate_info(self):
+        """Update coordinate information display"""
+        if self.use_raw_coordinates:
+            info = f"Raw coordinates (offset: {self.offset_x}, {self.offset_y})"
+        else:
+            info = f"Calibrated coordinates (offset: {self.offset_x}, {self.offset_y})"
+        self.coordinate_info_label.configure(text=info)
+            
     def calibrate_screen(self):
-        """Screen calibration to ensure accurate coordinate mapping"""
+        """Improved screen calibration"""
         cal_window = tk.Toplevel(self.root)
         cal_window.title("Screen Calibration")
-        cal_window.geometry("500x400")
+        cal_window.geometry("600x500")
         cal_window.configure(bg="#f5f5f7")
         cal_window.transient(self.root)
         cal_window.grab_set()
         
         # Center calibration window
         cal_window.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - (500 // 2)
-        y = (self.root.winfo_screenheight() // 2) - (400 // 2)
-        cal_window.geometry(f"500x400+{x}+{y}")
+        x = (self.root.winfo_screenwidth() // 2) - (600 // 2)
+        y = (self.root.winfo_screenheight() // 2) - (500 // 2)
+        cal_window.geometry(f"600x500+{x}+{y}")
         
         # Main frame
         main_frame = ttk.Frame(cal_window, style='Main.TFrame')
@@ -431,15 +483,21 @@ class MacroRecorder:
         ttk.Label(main_frame, text="Screen Calibration", 
                  style='Title.TLabel').pack(pady=(0, 20))
         
-        instruction_text = """To ensure accurate coordinate mapping:
+        instruction_text = """Calibration helps fix coordinate mapping issues.
 
-1. Click 'Start Calibration' below
-2. Click on the TOP-LEFT corner of your primary monitor
-3. Click on the BOTTOM-RIGHT corner of your primary monitor
-4. The system will calculate calibration factors
+Choose your calibration method:
 
-This process ensures that recorded mouse movements 
-are replayed at the correct screen positions."""
+1. AUTOMATIC CALIBRATION (Recommended):
+   • Uses your current cursor position as reference
+   • Quick and usually accurate
+
+2. MANUAL CALIBRATION:
+   • Click specific screen corners manually
+   • More precise but requires more steps
+
+3. RAW COORDINATES:
+   • Uses coordinates exactly as recorded
+   • Try this if calibration doesn't help"""
         
         # Instruction card
         instruction_card = ttk.Frame(main_frame, style='Card.TFrame')
@@ -456,13 +514,21 @@ are replayed at the correct screen positions."""
         button_frame = ttk.Frame(main_frame, style='Main.TFrame')
         button_frame.pack(fill=tk.X)
         
-        self.cal_points = []
-        self.cal_listener = None
+        def auto_calibrate():
+            """Automatic calibration using current cursor position"""
+            current_pos = self.mouse_controller.position
+            self.offset_x = 0
+            self.offset_y = 0
+            self.use_raw_coordinates = True
+            self.log_action(f"Auto-calibration: Using raw coordinates from position {current_pos}")
+            self.update_coordinate_info()
+            cal_window.destroy()
         
-        def start_calibration():
+        def manual_calibrate():
+            """Manual calibration by clicking corners"""
             cal_window.withdraw()
-            self.cal_points.clear()
-            self.log_action("Calibration started - Click TOP-LEFT corner")
+            self.cal_points = []
+            self.log_action("Manual calibration started - Click TOP-LEFT corner of your screen")
             
             def on_click(x, y, button, pressed):
                 if pressed and button == Button.left:
@@ -471,43 +537,63 @@ are replayed at the correct screen positions."""
                         self.log_action(f"Top-left recorded: ({x}, {y}) - Now click BOTTOM-RIGHT corner")
                     elif len(self.cal_points) == 2:
                         self.log_action(f"Bottom-right recorded: ({x}, {y})")
-                        self.calculate_calibration()
+                        self.calculate_manual_calibration()
                         cal_window.destroy()
                         return False
             
-            self.cal_listener = MouseListener(on_click=on_click)
-            self.cal_listener.start()
+            cal_listener = MouseListener(on_click=on_click)
+            cal_listener.start()
         
-        ttk.Button(button_frame, text="Start Calibration", 
-                  command=start_calibration, style='Primary.TButton').pack(side=tk.LEFT, padx=(0, 15))
+        def use_raw_coordinates():
+            """Use raw coordinates without calibration"""
+            self.offset_x = 0
+            self.offset_y = 0
+            self.use_raw_coordinates = True
+            self.log_action("Using raw coordinates mode")
+            self.update_coordinate_info()
+            cal_window.destroy()
         
-        ttk.Button(button_frame, text="Cancel", 
-                  command=cal_window.destroy, style='Secondary.TButton').pack(side=tk.LEFT)
+        # Calibration buttons
+        button_row1 = ttk.Frame(button_frame, style='Main.TFrame')
+        button_row1.pack(fill=tk.X, pady=(0, 15))
         
-    def calculate_calibration(self):
-        """Calculate calibration factors based on calibration points"""
+        ttk.Button(button_row1, text="🎯 Auto Calibrate (Recommended)", 
+                  command=auto_calibrate, style='Primary.TButton').pack(side=tk.LEFT, padx=(0, 15))
+        
+        ttk.Button(button_row1, text="📏 Manual Calibrate", 
+                  command=manual_calibrate, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 15))
+        
+        button_row2 = ttk.Frame(button_frame, style='Main.TFrame')
+        button_row2.pack(fill=tk.X)
+        
+        ttk.Button(button_row2, text="📍 Raw Coordinates", 
+                  command=use_raw_coordinates, style='Secondary.TButton').pack(side=tk.LEFT, padx=(0, 15))
+        
+        ttk.Button(button_row2, text="Cancel", 
+                  command=cal_window.destroy, style='Secondary.TButton').pack(side=tk.RIGHT)
+        
+    def calculate_manual_calibration(self):
+        """Calculate calibration from manual corner clicks"""
         if len(self.cal_points) == 2:
             top_left = self.cal_points[0]
             bottom_right = self.cal_points[1]
             
-            # Calculate screen dimensions based on calibration
-            cal_width = bottom_right[0] - top_left[0]
-            cal_height = bottom_right[1] - top_left[1]
+            # Calculate offset based on screen corners
+            self.offset_x = top_left[0]
+            self.offset_y = top_left[1]
+            self.use_raw_coordinates = False
             
-            # Update calibration factors
-            if cal_width > 0 and cal_height > 0:
-                self.calibration_factor_x = cal_width / self.screen_width
-                self.calibration_factor_y = cal_height / self.screen_height
-                
-                self.log_action(f"Calibration complete - Factors: X={self.calibration_factor_x:.3f}, Y={self.calibration_factor_y:.3f}")
-            else:
-                self.log_action("Calibration failed - Invalid coordinates")
+            self.log_action(f"Manual calibration complete - Offset: ({self.offset_x}, {self.offset_y})")
+            self.update_coordinate_info()
             
-    def apply_calibration(self, x, y):
-        """Apply calibration to coordinates"""
-        cal_x = int(x * self.calibration_factor_x)
-        cal_y = int(y * self.calibration_factor_y)
-        return cal_x, cal_y
+    def apply_coordinates(self, x, y):
+        """Apply coordinate transformation based on current calibration"""
+        if self.use_raw_coordinates:
+            # Use coordinates exactly as recorded, with optional offset
+            return int(x + self.offset_x), int(y + self.offset_y)
+        else:
+            # Apply manual calibration offset
+            return int(x + self.offset_x), int(y + self.offset_y)
         
     def toggle_recording(self):
         """Start or stop recording"""
@@ -528,9 +614,11 @@ are replayed at the correct screen positions."""
         self.clear_btn.configure(state='disabled')
         self.save_btn.configure(state='disabled')
         self.load_btn.configure(state='disabled')
-        self.status_label.configure(text="🔴 Recording in progress...")
+        self.test_btn.configure(state='disabled')
+        self.calibrate_btn.configure(state='disabled')
+        self.status_label.configure(text="🔴 Recording in progress... (Press ESC to stop)")
         
-        self.log_action("Recording started - Press ESC to stop")
+        self.log_action("Recording started - Press ESC to stop at any time")
         self.update_file_status()
         
         # Start mouse listener
@@ -581,11 +669,11 @@ are replayed at the correct screen positions."""
         )
         self.mouse_listener.start()
         
-        # Start keyboard listener
+        # Start keyboard listener (separate from global ESC listener)
         def on_press(key):
             if self.is_recording:
                 # Don't record ESC key during recording
-                if hasattr(key, 'name') and key.name == 'esc':
+                if key == Key.esc:
                     return
                     
                 timestamp = time.time() - self.start_time
@@ -600,7 +688,7 @@ are replayed at the correct screen positions."""
         def on_release(key):
             if self.is_recording:
                 # Don't record ESC key during recording
-                if hasattr(key, 'name') and key.name == 'esc':
+                if key == Key.esc:
                     return
                     
                 timestamp = time.time() - self.start_time
@@ -633,6 +721,8 @@ are replayed at the correct screen positions."""
         self.clear_btn.configure(state='normal')
         self.save_btn.configure(state='normal')
         self.load_btn.configure(state='normal')
+        self.test_btn.configure(state='normal')
+        self.calibrate_btn.configure(state='normal')
         self.status_label.configure(text="✅ Recording complete")
         
         duration = self.recorded_actions[-1]['timestamp'] if self.recorded_actions else 0
@@ -659,6 +749,8 @@ are replayed at the correct screen positions."""
         self.clear_btn.configure(state='disabled')
         self.save_btn.configure(state='disabled')
         self.load_btn.configure(state='disabled')
+        self.test_btn.configure(state='disabled')
+        self.calibrate_btn.configure(state='disabled')
         self.status_label.configure(text=f"▶️ Playing back {repetitions} time(s)... (Press ESC to stop)")
         
         # Start playback in a separate thread
@@ -698,17 +790,23 @@ are replayed at the correct screen positions."""
             self.root.after(0, self.playback_finished)
             
     def execute_action(self, action):
-        """Execute a single recorded action"""
+        """Execute a single recorded action with improved coordinate handling"""
         try:
             if action['type'] == 'mouse_move':
-                # Apply calibration and force mouse position
-                cal_x, cal_y = self.apply_calibration(action['x'], action['y'])
+                # Apply coordinate transformation
+                cal_x, cal_y = self.apply_coordinates(action['x'], action['y'])
                 self.mouse_controller.position = (cal_x, cal_y)
                 
             elif action['type'] == 'mouse_click':
-                # Apply calibration and perform click
-                cal_x, cal_y = self.apply_calibration(action['x'], action['y'])
+                # Apply coordinate transformation and perform click
+                cal_x, cal_y = self.apply_coordinates(action['x'], action['y'])
+                
+                # Log the coordinate transformation for debugging
+                self.log_action(f"Click: original({action['x']}, {action['y']}) -> transformed({cal_x}, {cal_y})")
+                
+                # Force the mouse to the exact position
                 self.mouse_controller.position = (cal_x, cal_y)
+                time.sleep(0.01)  # Small delay to ensure position is set
                 
                 button = Button.left if 'left' in action['button'].lower() else Button.right
                 
@@ -718,7 +816,7 @@ are replayed at the correct screen positions."""
                     self.mouse_controller.release(button)
                     
             elif action['type'] == 'mouse_scroll':
-                cal_x, cal_y = self.apply_calibration(action['x'], action['y'])
+                cal_x, cal_y = self.apply_coordinates(action['x'], action['y'])
                 self.mouse_controller.position = (cal_x, cal_y)
                 self.mouse_controller.scroll(action['dx'], action['dy'])
                 
@@ -754,7 +852,6 @@ are replayed at the correct screen positions."""
         """Stop playback (ESC key handler)"""
         if self.is_playing:
             self.is_playing = False
-            self.log_action("Playback stopped by ESC key")
             self.root.after(0, self.playback_finished)
             
     def playback_finished(self):
@@ -765,6 +862,8 @@ are replayed at the correct screen positions."""
         self.clear_btn.configure(state='normal')
         self.save_btn.configure(state='normal')
         self.load_btn.configure(state='normal')
+        self.test_btn.configure(state='normal')
+        self.calibrate_btn.configure(state='normal')
         self.status_label.configure(text="✅ Playback finished")
         
     def clear_recording(self):
@@ -787,9 +886,11 @@ are replayed at the correct screen positions."""
     def run(self):
         """Start the application"""
         self.log_action("🚀 Macro Recorder Pro started")
-        self.log_action("💡 Press ESC during recording or playback to stop")
-        self.log_action("🎯 Use 'Calibrate' for accurate coordinate mapping")
+        self.log_action("💡 Global ESC key listener is active")
+        self.log_action("🎯 Use 'Test Click' to check coordinate accuracy")
+        self.log_action("📏 Use 'Calibrate' if clicks are in wrong positions")
         self.log_action("💾 Save recordings to reuse them later")
+        self.update_coordinate_info()
         self.root.mainloop()
 
 
