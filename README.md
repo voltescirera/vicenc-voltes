@@ -196,10 +196,11 @@ Saved recordings use JSON format with the following structure:
    ```
 
 3. **Clicks in Wrong Position**:
-   - Click "🎯 Test Click" to verify current position
+   - Click "🎯 Test Click" to verify current position and see scale factor effect
    - Use "📏 Calibrate" and try different modes:
-     - Auto Calibrate (recommended)
+     - Auto Calibrate (recommended) - uses 0.79 scale factor
      - Manual Calibrate (for screen offsets)
+     - Scale Factor (adjust the 0.79 scaling if needed)
      - Raw Coordinates (for same system)
    - Check coordinate transformation in the activity log
 

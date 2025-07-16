@@ -45,6 +45,7 @@ class MacroRecorder:
         self.screen_height = self.root.winfo_screenheight()
         self.offset_x = 0  # Screen offset
         self.offset_y = 0  # Screen offset
+        self.scale_factor = 0.79  # Correction factor for coordinate scaling
         self.use_raw_coordinates = True  # Use raw coordinates by default
         
         self.setup_gui()
@@ -325,6 +326,10 @@ class MacroRecorder:
         current_pos = self.mouse_controller.position
         self.log_action(f"Current mouse position: {current_pos}")
         
+        # Show what the scaling would do
+        scaled_pos = (current_pos[0] * self.scale_factor, current_pos[1] * self.scale_factor)
+        self.log_action(f"With scale factor {self.scale_factor}: {current_pos} -> ({scaled_pos[0]:.1f}, {scaled_pos[1]:.1f})")
+        
         # Click at current position
         time.sleep(1)  # Give user time to see the message
         self.mouse_controller.click(Button.left)
@@ -373,6 +378,7 @@ class MacroRecorder:
                     'calibration': {
                         'offset_x': self.offset_x,
                         'offset_y': self.offset_y,
+                        'scale_factor': self.scale_factor,
                         'use_raw_coordinates': self.use_raw_coordinates
                     },
                     'metadata': {
@@ -420,6 +426,7 @@ class MacroRecorder:
                     cal = recording_data['calibration']
                     self.offset_x = cal.get('offset_x', 0)
                     self.offset_y = cal.get('offset_y', 0)
+                    self.scale_factor = cal.get('scale_factor', 0.79)
                     self.use_raw_coordinates = cal.get('use_raw_coordinates', True)
                 
                 self.current_file = filename
@@ -456,9 +463,9 @@ class MacroRecorder:
     def update_coordinate_info(self):
         """Update coordinate information display"""
         if self.use_raw_coordinates:
-            info = f"Raw coordinates (offset: {self.offset_x}, {self.offset_y})"
+            info = f"Raw coordinates (scale: {self.scale_factor}, offset: {self.offset_x}, {self.offset_y})"
         else:
-            info = f"Calibrated coordinates (offset: {self.offset_x}, {self.offset_y})"
+            info = f"Calibrated coordinates (scale: {self.scale_factor}, offset: {self.offset_x}, {self.offset_y})"
         self.coordinate_info_label.configure(text=info)
             
     def calibrate_screen(self):
@@ -552,6 +559,61 @@ Choose your calibration method:
             self.log_action("Using raw coordinates mode")
             self.update_coordinate_info()
             cal_window.destroy()
+            
+        def adjust_scale_factor():
+            """Allow user to adjust the scale factor"""
+            scale_window = tk.Toplevel(cal_window)
+            scale_window.title("Adjust Scale Factor")
+            scale_window.geometry("400x300")
+            scale_window.configure(bg="#f5f5f7")
+            scale_window.transient(cal_window)
+            scale_window.grab_set()
+            
+            # Center the window
+            scale_window.update_idletasks()
+            x = (cal_window.winfo_screenwidth() // 2) - (400 // 2)
+            y = (cal_window.winfo_screenheight() // 2) - (300 // 2)
+            scale_window.geometry(f"400x300+{x}+{y}")
+            
+            main_frame = ttk.Frame(scale_window, style='Main.TFrame')
+            main_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=20)
+            
+            ttk.Label(main_frame, text="Adjust Scale Factor", style='Title.TLabel').pack(pady=(0, 15))
+            
+            info_text = f"""Current scale factor: {self.scale_factor}
+            
+All coordinates are multiplied by this factor.
+• 0.79 = coordinates reduced by 21%
+• 1.0 = no scaling (original size)
+• 1.2 = coordinates increased by 20%
+
+Enter new scale factor:"""
+            
+            ttk.Label(main_frame, text=info_text, style='Body.TLabel', justify=tk.LEFT).pack(pady=(0, 15))
+            
+            scale_var = tk.StringVar(value=str(self.scale_factor))
+            scale_entry = ttk.Entry(main_frame, textvariable=scale_var, width=10, style='Modern.TEntry')
+            scale_entry.pack(pady=(0, 20))
+            scale_entry.focus_set()
+            
+            def apply_scale():
+                try:
+                    new_scale = float(scale_var.get())
+                    if 0.1 <= new_scale <= 5.0:
+                        self.scale_factor = new_scale
+                        self.log_action(f"Scale factor updated to {self.scale_factor}")
+                        self.update_coordinate_info()
+                        scale_window.destroy()
+                    else:
+                        messagebox.showerror("Invalid Value", "Scale factor must be between 0.1 and 5.0")
+                except ValueError:
+                    messagebox.showerror("Invalid Value", "Please enter a valid number")
+            
+            button_frame = ttk.Frame(main_frame, style='Main.TFrame')
+            button_frame.pack(fill=tk.X)
+            
+            ttk.Button(button_frame, text="Apply", command=apply_scale, style='Primary.TButton').pack(side=tk.LEFT, padx=(0, 10))
+            ttk.Button(button_frame, text="Cancel", command=scale_window.destroy, style='Secondary.TButton').pack(side=tk.LEFT)
         
         # Calibration buttons
         button_row1 = ttk.Frame(button_frame, style='Main.TFrame')
@@ -588,12 +650,16 @@ Choose your calibration method:
             
     def apply_coordinates(self, x, y):
         """Apply coordinate transformation based on current calibration"""
+        # Apply scaling factor first
+        scaled_x = x * self.scale_factor
+        scaled_y = y * self.scale_factor
+        
         if self.use_raw_coordinates:
-            # Use coordinates exactly as recorded, with optional offset
-            return int(x + self.offset_x), int(y + self.offset_y)
+            # Use coordinates with scaling and optional offset
+            return int(scaled_x + self.offset_x), int(scaled_y + self.offset_y)
         else:
-            # Apply manual calibration offset
-            return int(x + self.offset_x), int(y + self.offset_y)
+            # Apply manual calibration offset with scaling
+            return int(scaled_x + self.offset_x), int(scaled_y + self.offset_y)
         
     def toggle_recording(self):
         """Start or stop recording"""
@@ -802,7 +868,7 @@ Choose your calibration method:
                 cal_x, cal_y = self.apply_coordinates(action['x'], action['y'])
                 
                 # Log the coordinate transformation for debugging
-                self.log_action(f"Click: original({action['x']}, {action['y']}) -> transformed({cal_x}, {cal_y})")
+                self.log_action(f"Click: original({action['x']}, {action['y']}) -> scaled({action['x']*self.scale_factor:.1f}, {action['y']*self.scale_factor:.1f}) -> final({cal_x}, {cal_y})")
                 
                 # Force the mouse to the exact position
                 self.mouse_controller.position = (cal_x, cal_y)
@@ -887,6 +953,7 @@ Choose your calibration method:
         """Start the application"""
         self.log_action("🚀 Macro Recorder Pro started")
         self.log_action("💡 Global ESC key listener is active")
+        self.log_action(f"⚙️ Scale factor: {self.scale_factor} (coordinates are scaled by this factor)")
         self.log_action("🎯 Use 'Test Click' to check coordinate accuracy")
         self.log_action("📏 Use 'Calibrate' if clicks are in wrong positions")
         self.log_action("💾 Save recordings to reuse them later")
