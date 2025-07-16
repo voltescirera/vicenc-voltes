@@ -5,7 +5,7 @@ A professional-grade macro recorder with accurate timing and screen calibration.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, filedialog
 import threading
 import time
 import json
@@ -28,6 +28,7 @@ class MacroRecorder:
         self.is_playing = False
         self.recorded_actions = []
         self.start_time = None
+        self.current_file = None
         
         # Listeners and controllers
         self.mouse_listener = None
@@ -51,134 +52,246 @@ class MacroRecorder:
     def setup_window(self):
         """Configure main window properties"""
         self.root.title("Macro Recorder Pro")
-        self.root.geometry("800x600")
-        self.root.minsize(600, 400)
-        self.root.configure(bg="#1e1e1e")
+        self.root.geometry("900x700")
+        self.root.minsize(700, 500)
+        self.root.configure(bg="#f5f5f7")
         
         # Center window on screen
         self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - (800 // 2)
-        y = (self.root.winfo_screenheight() // 2) - (600 // 2)
-        self.root.geometry(f"800x600+{x}+{y}")
+        x = (self.root.winfo_screenwidth() // 2) - (900 // 2)
+        y = (self.root.winfo_screenheight() // 2) - (700 // 2)
+        self.root.geometry(f"900x700+{x}+{y}")
+        
+        # Make window resizable but maintain aspect
+        self.root.resizable(True, True)
         
     def setup_styles(self):
-        """Configure modern dark theme styles"""
+        """Configure modern Apple-like theme styles"""
         style = ttk.Style()
         style.theme_use('clam')
         
-        # Configure styles for dark theme
-        style.configure('Dark.TFrame', background='#1e1e1e')
-        style.configure('Dark.TLabel', background='#1e1e1e', foreground='#ffffff', font=('SF Pro Display', 10))
-        style.configure('Title.TLabel', background='#1e1e1e', foreground='#ffffff', font=('SF Pro Display', 16, 'bold'))
-        style.configure('Dark.TButton', 
+        # Main background
+        style.configure('Main.TFrame', background='#f5f5f7')
+        style.configure('Card.TFrame', background='#ffffff', relief='flat', borderwidth=1)
+        
+        # Typography - Apple system fonts
+        style.configure('Title.TLabel', 
+                       background='#f5f5f7', 
+                       foreground='#1d1d1f', 
+                       font=('SF Pro Display', 28, 'bold'))
+        
+        style.configure('Subtitle.TLabel', 
+                       background='#f5f5f7', 
+                       foreground='#86868b', 
+                       font=('SF Pro Text', 13))
+        
+        style.configure('Body.TLabel', 
+                       background='#ffffff', 
+                       foreground='#1d1d1f', 
+                       font=('SF Pro Text', 12))
+        
+        style.configure('Status.TLabel', 
+                       background='#f5f5f7', 
+                       foreground='#86868b', 
+                       font=('SF Pro Text', 11))
+        
+        # Buttons - Apple style
+        style.configure('Primary.TButton', 
                        background='#007AFF', 
                        foreground='#ffffff',
                        borderwidth=0,
                        focuscolor='none',
-                       font=('SF Pro Display', 10, 'bold'))
-        style.map('Dark.TButton',
+                       padding=(20, 12),
+                       font=('SF Pro Text', 12, 'bold'))
+        style.map('Primary.TButton',
                  background=[('active', '#0056CC'), ('pressed', '#004199')])
         
-        style.configure('Record.TButton', 
-                       background='#FF3B30', 
+        style.configure('Secondary.TButton', 
+                       background='#f2f2f7', 
+                       foreground='#007AFF',
+                       borderwidth=0,
+                       focuscolor='none',
+                       padding=(20, 12),
+                       font=('SF Pro Text', 12, 'bold'))
+        style.map('Secondary.TButton',
+                 background=[('active', '#e5e5ea'), ('pressed', '#d1d1d6')])
+        
+        style.configure('Danger.TButton', 
+                       background='#ff3b30', 
                        foreground='#ffffff',
                        borderwidth=0,
                        focuscolor='none',
-                       font=('SF Pro Display', 10, 'bold'))
-        style.map('Record.TButton',
-                 background=[('active', '#D70015'), ('pressed', '#A50011')])
+                       padding=(20, 12),
+                       font=('SF Pro Text', 12, 'bold'))
+        style.map('Danger.TButton',
+                 background=[('active', '#d70015'), ('pressed', '#a50011')])
         
         style.configure('Success.TButton', 
-                       background='#34C759', 
+                       background='#34c759', 
                        foreground='#ffffff',
                        borderwidth=0,
                        focuscolor='none',
-                       font=('SF Pro Display', 10, 'bold'))
+                       padding=(20, 12),
+                       font=('SF Pro Text', 12, 'bold'))
         style.map('Success.TButton',
-                 background=[('active', '#248A3D'), ('pressed', '#1A5F2B')])
+                 background=[('active', '#248a3d'), ('pressed', '#1a5f2b')])
         
-        style.configure('Dark.TEntry', 
-                       fieldbackground='#2c2c2e',
+        # Entry fields
+        style.configure('Modern.TEntry', 
+                       fieldbackground='#ffffff',
                        borderwidth=1,
-                       insertcolor='#ffffff',
-                       foreground='#ffffff')
+                       relief='solid',
+                       insertcolor='#007AFF',
+                       foreground='#1d1d1f',
+                       padding=10,
+                       font=('SF Pro Text', 12))
         
     def setup_gui(self):
         """Create the main GUI interface"""
-        # Main container
-        main_frame = ttk.Frame(self.root, style='Dark.TFrame')
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        # Main container with padding
+        main_frame = ttk.Frame(self.root, style='Main.TFrame')
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=30)
         
-        # Title
-        title_label = ttk.Label(main_frame, text="Macro Recorder Pro", style='Title.TLabel')
-        title_label.pack(pady=(0, 20))
+        # Header section
+        header_frame = ttk.Frame(main_frame, style='Main.TFrame')
+        header_frame.pack(fill=tk.X, pady=(0, 30))
         
-        # Control panel
-        control_frame = ttk.Frame(main_frame, style='Dark.TFrame')
-        control_frame.pack(fill=tk.X, pady=(0, 20))
+        # Title and subtitle
+        title_label = ttk.Label(header_frame, text="Macro Recorder", style='Title.TLabel')
+        title_label.pack(anchor=tk.W)
+        
+        subtitle_label = ttk.Label(header_frame, 
+                                 text="Record and replay mouse and keyboard actions with precision", 
+                                 style='Subtitle.TLabel')
+        subtitle_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # Control panel - Card style
+        control_card = ttk.Frame(main_frame, style='Card.TFrame')
+        control_card.pack(fill=tk.X, pady=(0, 20))
+        
+        # Add subtle shadow effect (simulate with border)
+        control_card.configure(relief='solid', borderwidth=1)
+        
+        control_inner = ttk.Frame(control_card, style='Card.TFrame')
+        control_inner.pack(fill=tk.X, padx=25, pady=20)
+        
+        # Primary controls row
+        primary_controls = ttk.Frame(control_inner, style='Card.TFrame')
+        primary_controls.pack(fill=tk.X, pady=(0, 15))
         
         # Record button
-        self.record_btn = ttk.Button(control_frame, text="● Record", 
-                                   command=self.toggle_recording, style='Record.TButton')
-        self.record_btn.pack(side=tk.LEFT, padx=(0, 10), ipady=8, ipadx=15)
+        self.record_btn = ttk.Button(primary_controls, text="⏺ Record", 
+                                   command=self.toggle_recording, style='Danger.TButton')
+        self.record_btn.pack(side=tk.LEFT, padx=(0, 15))
         
         # Play button
-        self.play_btn = ttk.Button(control_frame, text="▶ Play", 
+        self.play_btn = ttk.Button(primary_controls, text="▶ Play", 
                                  command=self.start_playback, style='Success.TButton')
-        self.play_btn.pack(side=tk.LEFT, padx=(0, 10), ipady=8, ipadx=15)
+        self.play_btn.pack(side=tk.LEFT, padx=(0, 15))
         
         # Clear button
-        self.clear_btn = ttk.Button(control_frame, text="🗑 Clear", 
-                                  command=self.clear_recording, style='Dark.TButton')
-        self.clear_btn.pack(side=tk.LEFT, padx=(0, 20), ipady=8, ipadx=15)
-        
-        # Repetitions
-        rep_frame = ttk.Frame(control_frame, style='Dark.TFrame')
-        rep_frame.pack(side=tk.LEFT)
-        
-        ttk.Label(rep_frame, text="Repetitions:", style='Dark.TLabel').pack(side=tk.LEFT, padx=(0, 5))
-        self.rep_var = tk.StringVar(value="1")
-        self.rep_entry = ttk.Entry(rep_frame, textvariable=self.rep_var, width=5, style='Dark.TEntry')
-        self.rep_entry.pack(side=tk.LEFT)
+        self.clear_btn = ttk.Button(primary_controls, text="🗑 Clear", 
+                                  command=self.clear_recording, style='Secondary.TButton')
+        self.clear_btn.pack(side=tk.LEFT, padx=(0, 15))
         
         # Calibration button
-        self.calibrate_btn = ttk.Button(control_frame, text="🎯 Calibrate", 
-                                      command=self.calibrate_screen, style='Dark.TButton')
-        self.calibrate_btn.pack(side=tk.RIGHT, ipady=8, ipadx=15)
+        self.calibrate_btn = ttk.Button(primary_controls, text="🎯 Calibrate", 
+                                      command=self.calibrate_screen, style='Secondary.TButton')
+        self.calibrate_btn.pack(side=tk.RIGHT)
         
-        # Status frame
-        status_frame = ttk.Frame(main_frame, style='Dark.TFrame')
-        status_frame.pack(fill=tk.X, pady=(0, 10))
+        # Secondary controls row
+        secondary_controls = ttk.Frame(control_inner, style='Card.TFrame')
+        secondary_controls.pack(fill=tk.X, pady=(0, 15))
         
-        self.status_label = ttk.Label(status_frame, text="Ready to record", style='Dark.TLabel')
+        # File operations
+        file_frame = ttk.Frame(secondary_controls, style='Card.TFrame')
+        file_frame.pack(side=tk.LEFT)
+        
+        self.save_btn = ttk.Button(file_frame, text="💾 Save Recording", 
+                                 command=self.save_recording, style='Secondary.TButton')
+        self.save_btn.pack(side=tk.LEFT, padx=(0, 15))
+        
+        self.load_btn = ttk.Button(file_frame, text="📁 Load Recording", 
+                                 command=self.load_recording, style='Secondary.TButton')
+        self.load_btn.pack(side=tk.LEFT)
+        
+        # Repetitions control
+        rep_frame = ttk.Frame(secondary_controls, style='Card.TFrame')
+        rep_frame.pack(side=tk.RIGHT)
+        
+        ttk.Label(rep_frame, text="Repetitions:", style='Body.TLabel').pack(side=tk.LEFT, padx=(0, 10))
+        self.rep_var = tk.StringVar(value="1")
+        self.rep_entry = ttk.Entry(rep_frame, textvariable=self.rep_var, width=8, style='Modern.TEntry')
+        self.rep_entry.pack(side=tk.LEFT)
+        
+        # Status section
+        status_card = ttk.Frame(main_frame, style='Card.TFrame')
+        status_card.pack(fill=tk.X, pady=(0, 20))
+        status_card.configure(relief='solid', borderwidth=1)
+        
+        status_inner = ttk.Frame(status_card, style='Card.TFrame')
+        status_inner.pack(fill=tk.X, padx=25, pady=15)
+        
+        # Status indicators
+        status_top = ttk.Frame(status_inner, style='Card.TFrame')
+        status_top.pack(fill=tk.X)
+        
+        self.status_label = ttk.Label(status_top, text="Ready to record", style='Body.TLabel')
         self.status_label.pack(side=tk.LEFT)
         
-        self.action_count_label = ttk.Label(status_frame, text="Actions: 0", style='Dark.TLabel')
+        self.action_count_label = ttk.Label(status_top, text="Actions: 0", style='Status.TLabel')
         self.action_count_label.pack(side=tk.RIGHT)
         
-        # Event log
-        log_frame = ttk.Frame(main_frame, style='Dark.TFrame')
-        log_frame.pack(fill=tk.BOTH, expand=True)
+        # File status
+        self.file_status_label = ttk.Label(status_inner, text="No file loaded", style='Status.TLabel')
+        self.file_status_label.pack(anchor=tk.W, pady=(5, 0))
         
-        ttk.Label(log_frame, text="Event Log:", style='Dark.TLabel').pack(anchor=tk.W, pady=(0, 5))
+        # Event log section
+        log_card = ttk.Frame(main_frame, style='Card.TFrame')
+        log_card.pack(fill=tk.BOTH, expand=True)
+        log_card.configure(relief='solid', borderwidth=1)
         
-        self.log_text = scrolledtext.ScrolledText(log_frame, 
-                                                bg='#2c2c2e', 
-                                                fg='#ffffff',
-                                                insertbackground='#ffffff',
+        log_inner = ttk.Frame(log_card, style='Card.TFrame')
+        log_inner.pack(fill=tk.BOTH, expand=True, padx=25, pady=20)
+        
+        ttk.Label(log_inner, text="Activity Log", style='Body.TLabel').pack(anchor=tk.W, pady=(0, 10))
+        
+        # Custom styled text widget
+        self.log_text = scrolledtext.ScrolledText(log_inner, 
+                                                bg='#fafafa', 
+                                                fg='#1d1d1f',
+                                                insertbackground='#007AFF',
                                                 selectbackground='#007AFF',
                                                 selectforeground='#ffffff',
-                                                font=('Monaco', 9),
-                                                wrap=tk.WORD)
+                                                font=('SF Mono', 10),
+                                                wrap=tk.WORD,
+                                                relief='flat',
+                                                borderwidth=0,
+                                                padx=15,
+                                                pady=10)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         
-        # Bind escape key globally
-        self.root.bind('<Escape>', self.stop_playback)
+        # Global key bindings for ESC
+        self.root.bind('<Escape>', self.handle_escape_key)
+        self.root.bind('<KeyPress-Escape>', self.handle_escape_key)
         self.root.focus_set()
+        
+        # Make the window focusable for global key events
+        self.root.attributes('-topmost', False)
+        
+    def handle_escape_key(self, event=None):
+        """Handle ESC key press - stop recording or playback"""
+        if self.is_recording:
+            self.stop_recording()
+            self.log_action("Recording stopped by ESC key")
+        elif self.is_playing:
+            self.stop_playback()
+            self.log_action("Playback stopped by ESC key")
+        return "break"
         
     def log_action(self, message):
         """Thread-safe logging to the event log"""
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        timestamp = datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] {message}\n"
         self.log_queue.put(formatted_message)
         
@@ -194,37 +307,154 @@ class MacroRecorder:
         finally:
             self.root.after(50, self.process_log_queue)
             
+    def save_recording(self):
+        """Save the current recording to a file"""
+        if not self.recorded_actions:
+            messagebox.showwarning("No Recording", "Please record some actions first.")
+            return
+            
+        filename = filedialog.asksaveasfilename(
+            title="Save Recording",
+            defaultextension=".macro",
+            filetypes=[
+                ("Macro files", "*.macro"),
+                ("JSON files", "*.json"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            try:
+                recording_data = {
+                    'version': '1.0',
+                    'created': datetime.now().isoformat(),
+                    'actions': self.recorded_actions,
+                    'calibration': {
+                        'factor_x': self.calibration_factor_x,
+                        'factor_y': self.calibration_factor_y
+                    },
+                    'metadata': {
+                        'action_count': len(self.recorded_actions),
+                        'duration': self.recorded_actions[-1]['timestamp'] if self.recorded_actions else 0
+                    }
+                }
+                
+                with open(filename, 'w') as f:
+                    json.dump(recording_data, f, indent=2)
+                
+                self.current_file = filename
+                self.update_file_status()
+                self.log_action(f"Recording saved to {os.path.basename(filename)}")
+                messagebox.showinfo("Success", f"Recording saved successfully!")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save recording:\n{str(e)}")
+                self.log_action(f"Save error: {str(e)}")
+                
+    def load_recording(self):
+        """Load a recording from a file"""
+        filename = filedialog.askopenfilename(
+            title="Load Recording",
+            filetypes=[
+                ("Macro files", "*.macro"),
+                ("JSON files", "*.json"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'r') as f:
+                    recording_data = json.load(f)
+                
+                # Validate the file format
+                if 'actions' not in recording_data:
+                    raise ValueError("Invalid macro file format")
+                
+                self.recorded_actions = recording_data['actions']
+                
+                # Load calibration if available
+                if 'calibration' in recording_data:
+                    cal = recording_data['calibration']
+                    self.calibration_factor_x = cal.get('factor_x', 1.0)
+                    self.calibration_factor_y = cal.get('factor_y', 1.0)
+                
+                self.current_file = filename
+                self.update_file_status()
+                self.update_action_count()
+                
+                # Display metadata if available
+                metadata = recording_data.get('metadata', {})
+                duration = metadata.get('duration', 0)
+                created = recording_data.get('created', 'Unknown')
+                
+                self.log_action(f"Recording loaded from {os.path.basename(filename)}")
+                self.log_action(f"Created: {created[:19] if created != 'Unknown' else 'Unknown'}")
+                self.log_action(f"Duration: {duration:.2f}s, Actions: {len(self.recorded_actions)}")
+                
+                messagebox.showinfo("Success", 
+                                  f"Recording loaded successfully!\n"
+                                  f"Actions: {len(self.recorded_actions)}\n"
+                                  f"Duration: {duration:.2f}s")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load recording:\n{str(e)}")
+                self.log_action(f"Load error: {str(e)}")
+                
+    def update_file_status(self):
+        """Update the file status display"""
+        if self.current_file:
+            filename = os.path.basename(self.current_file)
+            self.file_status_label.configure(text=f"File: {filename}")
+        else:
+            self.file_status_label.configure(text="No file loaded")
+            
     def calibrate_screen(self):
         """Screen calibration to ensure accurate coordinate mapping"""
         cal_window = tk.Toplevel(self.root)
         cal_window.title("Screen Calibration")
-        cal_window.geometry("400x300")
-        cal_window.configure(bg="#1e1e1e")
+        cal_window.geometry("500x400")
+        cal_window.configure(bg="#f5f5f7")
         cal_window.transient(self.root)
         cal_window.grab_set()
         
         # Center calibration window
         cal_window.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - (400 // 2)
-        y = (self.root.winfo_screenheight() // 2) - (300 // 2)
-        cal_window.geometry(f"400x300+{x}+{y}")
+        x = (self.root.winfo_screenwidth() // 2) - (500 // 2)
+        y = (self.root.winfo_screenheight() // 2) - (400 // 2)
+        cal_window.geometry(f"500x400+{x}+{y}")
         
-        ttk.Label(cal_window, text="Screen Calibration", 
-                 style='Title.TLabel').pack(pady=20)
+        # Main frame
+        main_frame = ttk.Frame(cal_window, style='Main.TFrame')
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=30)
         
-        instruction_text = """
-        To calibrate screen coordinates:
+        ttk.Label(main_frame, text="Screen Calibration", 
+                 style='Title.TLabel').pack(pady=(0, 20))
         
-        1. Click 'Start Calibration'
-        2. Click on the TOP-LEFT corner of your primary monitor
-        3. Click on the BOTTOM-RIGHT corner of your primary monitor
-        4. The system will calculate calibration factors
+        instruction_text = """To ensure accurate coordinate mapping:
+
+1. Click 'Start Calibration' below
+2. Click on the TOP-LEFT corner of your primary monitor
+3. Click on the BOTTOM-RIGHT corner of your primary monitor
+4. The system will calculate calibration factors
+
+This process ensures that recorded mouse movements 
+are replayed at the correct screen positions."""
         
-        This ensures accurate coordinate mapping.
-        """
+        # Instruction card
+        instruction_card = ttk.Frame(main_frame, style='Card.TFrame')
+        instruction_card.pack(fill=tk.X, pady=(0, 30))
+        instruction_card.configure(relief='solid', borderwidth=1)
         
-        ttk.Label(cal_window, text=instruction_text, 
-                 style='Dark.TLabel', justify=tk.CENTER).pack(pady=20, padx=20)
+        instruction_inner = ttk.Frame(instruction_card, style='Card.TFrame')
+        instruction_inner.pack(fill=tk.X, padx=25, pady=20)
+        
+        ttk.Label(instruction_inner, text=instruction_text, 
+                 style='Body.TLabel', justify=tk.LEFT).pack()
+        
+        # Button frame
+        button_frame = ttk.Frame(main_frame, style='Main.TFrame')
+        button_frame.pack(fill=tk.X)
         
         self.cal_points = []
         self.cal_listener = None
@@ -248,11 +478,11 @@ class MacroRecorder:
             self.cal_listener = MouseListener(on_click=on_click)
             self.cal_listener.start()
         
-        ttk.Button(cal_window, text="Start Calibration", 
-                  command=start_calibration, style='Dark.TButton').pack(pady=20)
+        ttk.Button(button_frame, text="Start Calibration", 
+                  command=start_calibration, style='Primary.TButton').pack(side=tk.LEFT, padx=(0, 15))
         
-        ttk.Button(cal_window, text="Cancel", 
-                  command=cal_window.destroy, style='Dark.TButton').pack()
+        ttk.Button(button_frame, text="Cancel", 
+                  command=cal_window.destroy, style='Secondary.TButton').pack(side=tk.LEFT)
         
     def calculate_calibration(self):
         """Calculate calibration factors based on calibration points"""
@@ -265,10 +495,13 @@ class MacroRecorder:
             cal_height = bottom_right[1] - top_left[1]
             
             # Update calibration factors
-            self.calibration_factor_x = cal_width / self.screen_width
-            self.calibration_factor_y = cal_height / self.screen_height
-            
-            self.log_action(f"Calibration complete - Factors: X={self.calibration_factor_x:.3f}, Y={self.calibration_factor_y:.3f}")
+            if cal_width > 0 and cal_height > 0:
+                self.calibration_factor_x = cal_width / self.screen_width
+                self.calibration_factor_y = cal_height / self.screen_height
+                
+                self.log_action(f"Calibration complete - Factors: X={self.calibration_factor_x:.3f}, Y={self.calibration_factor_y:.3f}")
+            else:
+                self.log_action("Calibration failed - Invalid coordinates")
             
     def apply_calibration(self, x, y):
         """Apply calibration to coordinates"""
@@ -288,13 +521,17 @@ class MacroRecorder:
         self.is_recording = True
         self.recorded_actions.clear()
         self.start_time = time.time()
+        self.current_file = None  # Clear current file as we're creating new recording
         
-        self.record_btn.configure(text="⏹ Stop Recording", style='Record.TButton')
+        self.record_btn.configure(text="⏹ Stop Recording", style='Danger.TButton')
         self.play_btn.configure(state='disabled')
         self.clear_btn.configure(state='disabled')
-        self.status_label.configure(text="Recording in progress...")
+        self.save_btn.configure(state='disabled')
+        self.load_btn.configure(state='disabled')
+        self.status_label.configure(text="🔴 Recording in progress...")
         
-        self.log_action("Recording started")
+        self.log_action("Recording started - Press ESC to stop")
+        self.update_file_status()
         
         # Start mouse listener
         def on_move(x, y):
@@ -347,6 +584,10 @@ class MacroRecorder:
         # Start keyboard listener
         def on_press(key):
             if self.is_recording:
+                # Don't record ESC key during recording
+                if hasattr(key, 'name') and key.name == 'esc':
+                    return
+                    
                 timestamp = time.time() - self.start_time
                 key_name = str(key).replace("'", "")
                 self.recorded_actions.append({
@@ -358,6 +599,10 @@ class MacroRecorder:
                 
         def on_release(key):
             if self.is_recording:
+                # Don't record ESC key during recording
+                if hasattr(key, 'name') and key.name == 'esc':
+                    return
+                    
                 timestamp = time.time() - self.start_time
                 key_name = str(key).replace("'", "")
                 self.recorded_actions.append({
@@ -383,18 +628,21 @@ class MacroRecorder:
         if self.keyboard_listener:
             self.keyboard_listener.stop()
             
-        self.record_btn.configure(text="● Record", style='Record.TButton')
+        self.record_btn.configure(text="⏺ Record", style='Danger.TButton')
         self.play_btn.configure(state='normal')
         self.clear_btn.configure(state='normal')
-        self.status_label.configure(text="Recording stopped")
+        self.save_btn.configure(state='normal')
+        self.load_btn.configure(state='normal')
+        self.status_label.configure(text="✅ Recording complete")
         
-        self.log_action(f"Recording stopped - {len(self.recorded_actions)} actions captured")
+        duration = self.recorded_actions[-1]['timestamp'] if self.recorded_actions else 0
+        self.log_action(f"Recording stopped - {len(self.recorded_actions)} actions captured in {duration:.2f}s")
         self.update_action_count()
         
     def start_playback(self):
         """Start playback of recorded actions"""
         if not self.recorded_actions:
-            messagebox.showwarning("No Recording", "Please record some actions first.")
+            messagebox.showwarning("No Recording", "Please record some actions or load a recording first.")
             return
             
         try:
@@ -409,7 +657,9 @@ class MacroRecorder:
         self.record_btn.configure(state='disabled')
         self.play_btn.configure(text="⏸ Playing...", state='disabled')
         self.clear_btn.configure(state='disabled')
-        self.status_label.configure(text=f"Playing back {repetitions} time(s)...")
+        self.save_btn.configure(state='disabled')
+        self.load_btn.configure(state='disabled')
+        self.status_label.configure(text=f"▶️ Playing back {repetitions} time(s)... (Press ESC to stop)")
         
         # Start playback in a separate thread
         playback_thread = threading.Thread(target=self.playback_actions, args=(repetitions,))
@@ -439,7 +689,7 @@ class MacroRecorder:
                     # Execute the action
                     self.execute_action(action)
                     
-                if rep < repetitions - 1:
+                if rep < repetitions - 1 and self.is_playing:
                     time.sleep(0.5)  # Brief pause between repetitions
                     
         except Exception as e:
@@ -504,7 +754,7 @@ class MacroRecorder:
         """Stop playback (ESC key handler)"""
         if self.is_playing:
             self.is_playing = False
-            self.log_action("Playback stopped by user (ESC)")
+            self.log_action("Playback stopped by ESC key")
             self.root.after(0, self.playback_finished)
             
     def playback_finished(self):
@@ -513,15 +763,21 @@ class MacroRecorder:
         self.record_btn.configure(state='normal')
         self.play_btn.configure(text="▶ Play", state='normal')
         self.clear_btn.configure(state='normal')
-        self.status_label.configure(text="Playback finished")
+        self.save_btn.configure(state='normal')
+        self.load_btn.configure(state='normal')
+        self.status_label.configure(text="✅ Playback finished")
         
     def clear_recording(self):
         """Clear all recorded actions"""
-        if messagebox.askyesno("Clear Recording", "Are you sure you want to clear the recorded actions?"):
+        if messagebox.askyesno("Clear Recording", 
+                              "Are you sure you want to clear the recorded actions?\n\n"
+                              "This action cannot be undone."):
             self.recorded_actions.clear()
+            self.current_file = None
             self.log_text.delete(1.0, tk.END)
             self.log_action("Recording cleared")
             self.update_action_count()
+            self.update_file_status()
             
     def update_action_count(self):
         """Update the action count display"""
@@ -530,9 +786,10 @@ class MacroRecorder:
         
     def run(self):
         """Start the application"""
-        self.log_action("Macro Recorder Pro started")
-        self.log_action("Press ESC during playback to stop")
-        self.log_action("Use 'Calibrate' for accurate coordinate mapping")
+        self.log_action("🚀 Macro Recorder Pro started")
+        self.log_action("💡 Press ESC during recording or playback to stop")
+        self.log_action("🎯 Use 'Calibrate' for accurate coordinate mapping")
+        self.log_action("💾 Save recordings to reuse them later")
         self.root.mainloop()
 
 
